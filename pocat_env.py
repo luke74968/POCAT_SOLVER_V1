@@ -2,7 +2,7 @@
 import torch
 from tensordict import TensorDict
 from torchrl.envs import EnvBase
-from typing import Optional
+from typing import Optional, Tuple
 from pocat_defs import (
     NODE_TYPE_BATTERY, NODE_TYPE_IC, NODE_TYPE_LOAD,
     FEATURE_INDEX

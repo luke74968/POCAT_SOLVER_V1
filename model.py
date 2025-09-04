@@ -2,16 +2,14 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import Tuple
 from tensordict import TensorDict
 
+# 직접 정의한 유틸리티와 정의 파일을 임포트
 from pocat_defs import FEATURE_DIM
+from pocat_utils import batchify
+from pocat_env import PocatEnv
 
-# CaDA의 MHA, FFD 등 기본 컴포넌트는 재사용 가능
-from ciam_group.cada.CaDA_8e1e9d6139425557207919e0a5c55d3606c3925b.n_100.model import (
-    EncoderLayer,
-    reshape_by_heads,
-    multi_head_attention
-)
 
 class RMSNorm(nn.Module):
     """ LLaMA에서 사용하는 RMSNorm """
@@ -151,13 +149,12 @@ class PocatPromptNet(nn.Module):
     def __init__(self, **model_params):
         super().__init__()
         embedding_dim = model_params['embedding_dim']
-
         self.prompt_net = PocatPromptNet(embedding_dim, prompt_feature_dim=2)
-        self.encoder = PocatEncoder(**model_params)
-        self.decoder = PocatDecoder(**model_params)
-        
+        self.encoder = PocatEncoder(embedding_dim=embedding_dim, **model_params)
+        self.decoder = PocatDecoder(embedding_dim=embedding_dim, **model_params)
         self.context_gru = nn.GRUCell(embedding_dim * 2, embedding_dim)
 
+        
     def forward(self, td: TensorDict, env: 'PocatEnv'):
         
         # 1. 인코딩
@@ -168,7 +165,6 @@ class PocatPromptNet(nn.Module):
         num_starts, start_nodes_idx = env.select_start_nodes(td)
         
         # CaDA의 유틸리티 함수를 가져와서 사용
-        from ciam_group.cada.CaDA_8e1e9d6139425557207919e0a5c55d3606c3925b.utils.functions import batchify
         
         td = batchify(td, num_starts)
         encoded_nodes = batchify(encoded_nodes, num_starts)
@@ -200,9 +196,6 @@ class PocatEncoder(nn.Module):
 
         # 2. POMO 시작점 선택 및 데이터 확장 (Batchify)
         num_starts, start_nodes_idx = env.select_start_nodes(td)
-        
-        # CaDA의 유틸리티 함수를 가져와서 사용
-        from ciam_group.cada.CaDA_8e1e9d6139425557207919e0a5c55d3606c3925b.utils.functions import batchify
         
         td = batchify(td, num_starts)
         encoded_nodes = batchify(encoded_nodes, num_starts)
@@ -371,7 +364,8 @@ class PocatModel(nn.Module):
 
 
     def forward(self, td: TensorDict, env: 'PocatEnv'):
-        
+        batch_size = td.batch_size[0]
+        num_nodes = td["nodes"].shape[1]
 
         # 1. 인코딩
         prompt_embedding = self.prompt_net(td["prompt_features"])
