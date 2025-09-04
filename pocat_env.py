@@ -23,21 +23,19 @@ class PocatEnv(EnvBase):
 
         # Power Tree 상태 초기화
         num_nodes = td["nodes"].shape[1]
+        # 💡 수정된 부분: td["static_info"] 대신 self.generator.config에서 직접 정보를 가져옵니다.
+
         
         return TensorDict(
             {
                 "nodes": td["nodes"],
                 "prompt_features": td["prompt_features"],
-                "static_info": td["static_info"],
-                # [child_idx, parent_idx] 형태의 액션을 순서대로 저장
-                "connections": torch.zeros(td.batch_size, num_nodes - 1, 2, dtype=torch.long),
-                # 연결된 노드 전체를 마스킹 (부하 + IC)
-                "connected_nodes_mask": torch.zeros(td.batch_size, num_nodes, dtype=torch.bool),
-                # 각 IC에 흐르는 현재 전류량
-                "ic_current_draw": torch.zeros(td.batch_size, num_nodes),
-                # 현재 몇 번째 연결을 만들고 있는지 (step)
-                "step_count": torch.zeros(td.batch_size, 1, dtype=torch.long),
-                "done": torch.zeros(td.batch_size, 1, dtype=torch.bool),
+                # "static_info": static_info_dict, # 이 라인 제거
+                "connections": torch.zeros(td.batch_size[0], num_nodes - 1, 2, dtype=torch.long, device=self.device),
+                "connected_nodes_mask": torch.zeros(td.batch_size[0], num_nodes, dtype=torch.bool, device=self.device),
+                "ic_current_draw": torch.zeros(td.batch_size[0], num_nodes, device=self.device),
+                "step_count": torch.zeros(td.batch_size[0], 1, dtype=torch.long, device=self.device),
+                "done": torch.zeros(td.batch_size[0], 1, dtype=torch.bool, device=self.device),
             },
             batch_size=td.batch_size,
         )
@@ -64,10 +62,10 @@ class PocatEnv(EnvBase):
         # 이 parent가 다른 IC의 자식이면 그 부모의 부모까지 거슬러 올라가며 전류량을 전파해야 함.
 
         # 2. 종료 조건 확인
-        num_loads = td["static_info"]["num_loads"]
+        num_loads = self.generator.num_loads
         # 노드 피처에서 Load 타입인 노드들의 인덱스를 가져옴
         load_indices = torch.where(td["nodes"][0, :, FEATURE_INDEX["node_type"][0] + NODE_TYPE_LOAD] == 1)[0]
-        
+
         all_loads_connected = td["connected_nodes_mask"][:, load_indices].all(dim=1)
         td["done"] = all_loads_connected.unsqueeze(-1)
         
@@ -150,7 +148,15 @@ class PocatEnv(EnvBase):
         # 예: current_draw > i_limit 인 경우 reward -= 1000
 
         return reward.unsqueeze(-1)
-        
+
+    # 💡 추가된 _set_seed 메소드
+    def _set_seed(self, seed: Optional[int]):
+        """환경의 난수 생성기 시드를 설정합니다."""
+        if seed is None:
+            seed = torch.empty((), dtype=torch.int64).random_().item()
+        rng = torch.manual_seed(seed)
+        self.rng = rng
+
     def select_start_nodes(self, td: TensorDict) -> Tuple[int, torch.Tensor]:
         """
         POMO를 위해 탐색을 시작할 모든 'Load' 노드의 인덱스를 반환합니다.

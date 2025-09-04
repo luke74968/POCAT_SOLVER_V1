@@ -1,0 +1,47 @@
+2025-09-04 20:15:14,255 {
+    "batch_size": 64,
+    "config_file": "config.json",
+    "config_yaml": "config.yaml",
+    "seed": 1234,
+    "test_only": false,
+    "start_time": "2025-0904-201514",
+    "result_dir": "result\\2025-0904-201514",
+    "model_params": {
+        "embedding_dim": 128,
+        "encoder_layer_num": 6,
+        "qkv_dim": 16,
+        "head_num": 8,
+        "ff_hidden_dim": 512,
+        "ffd": "siglu",
+        "norm_type": "rms"
+    },
+    "optimizer_params": {
+        "optimizer": {
+            "lr": "1e-4",
+            "weight_decay": "1e-6"
+        },
+        "scheduler": {
+            "name": "MultiStepLR",
+            "milestones": [
+                80,
+                95
+            ],
+            "gamma": 0.1
+        }
+    },
+    "trainer_params": {
+        "epochs": 100,
+        "train_step": 200,
+        "model_save_interval": 5,
+        "model_load": {
+            "enable": false,
+            "path": "result/...",
+            "epoch": 100
+        }
+    },
+    "ddp": false
+}
+2025-09-04 20:15:14,256 Using device: cuda
+2025-09-04 20:15:14,332 Total number of parameters: 1815360
+2025-09-04 20:15:14,332 Total number of buffer elements: 0
+2025-09-04 20:15:14,333 =================================================================

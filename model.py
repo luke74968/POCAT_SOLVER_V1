@@ -163,9 +163,10 @@ class PocatModel(nn.Module):
     def __init__(self, **model_params):
         super().__init__()
         embedding_dim = model_params['embedding_dim']
-        self.prompt_net = PocatPromptNet(embedding_dim=embedding_dim, **model_params)
-        self.encoder = PocatEncoder(embedding_dim=embedding_dim, **model_params)
-        self.decoder = PocatDecoder(embedding_dim=embedding_dim, **model_params)
+        # 💡 수정된 부분: **model_params 제거
+        self.prompt_net = PocatPromptNet(embedding_dim=embedding_dim) 
+        self.encoder = PocatEncoder(**model_params)
+        self.decoder = PocatDecoder(**model_params)
         self.context_gru = nn.GRUCell(embedding_dim * 2, embedding_dim)
 
     def forward(self, td: TensorDict, env: PocatEnv):
@@ -205,7 +206,7 @@ class PocatModel(nn.Module):
         context_embedding = self.context_gru(torch.cat([start_child_emb, parent_emb], dim=1), context_embedding)
         
         # Decoding Loop
-        num_loads = td["static_info"]["num_loads"][0]
+        num_loads = env.generator.num_loads
         for _ in range(1, num_loads):
             if td["done"].all(): break
             log_prob, action = self.decoder(encoded_nodes, context_embedding, env.get_action_mask(td))

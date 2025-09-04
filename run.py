@@ -21,17 +21,19 @@ def setup_logger(result_dir):
     return logger
 
 def main(args):
-    # 환경과 트레이너 초기화
-    env = PocatEnv(generator_params={'config_file_path': args.config_file}, device='cuda')
-    trainer = PocatTrainer(args, env)
+    # CPU/GPU 자동 감지 로직
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    args.log(f"Using device: {device}")
     
+    env = PocatEnv(generator_params={'config_file_path': args.config_file}, device=device)
+    trainer = PocatTrainer(args, env, device)
     # 훈련 시작
     trainer.run()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # 훈련 관련 인자
-    parser.add_argument("--batch_size", type=int, default=64, help="Training batch_size per gpu")
+    parser.add_argument("--batch_size", type=int, default=64, help="Training batch_size")
     parser.add_argument("--config_file", type=str, default="config.json", help="Path to POCAT config file")
     parser.add_argument("--config_yaml", type=str, default="config.yaml", help="Path to model/training config YAML")
     parser.add_argument("--seed", type=int, default=1234, help="Random seed")
@@ -39,31 +41,29 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    # 결과 저장을 위한 디렉토리 생성
     args.start_time = time.strftime("%Y-%m%d-%H%M%S", time.localtime())
     args.result_dir = os.path.join('result', args.start_time)
     os.makedirs(args.result_dir, exist_ok=True)
     
-    # 로거 설정
     logger = setup_logger(args.result_dir)
     args.log = logger.info
     
-    # YAML 설정 파일 로드
-    with open(args.config_yaml, "r") as f:
+    with open(args.config_yaml, "r", encoding="utf-8") as f:
         cfg_yaml = yaml.safe_load(f)
     for key, value in cfg_yaml.items():
         if not hasattr(args, key):
             setattr(args, key, value)
 
-    # DDP (Distributed Data Parallel) 설정은 우선 제외 (필요시 CaDA 코드 참고)
     args.ddp = False
-    torch.cuda.set_device(0)
     
-    # 랜덤 시드 고정
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(args.seed)
     random.seed(args.seed)
     torch.manual_seed(args.seed)
-    torch.cuda.manual_seed(args.seed)
 
-    args.log(json.dumps(vars(args), indent=4))
+    # 💡 수정된 부분: 로깅 전 non-JSON-serializable 객체 제거
+    args_dict_for_log = vars(args).copy()
+    del args_dict_for_log['log']
+    args.log(json.dumps(args_dict_for_log, indent=4))
     
     main(args)

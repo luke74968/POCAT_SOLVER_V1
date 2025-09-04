@@ -57,32 +57,21 @@ class PocatGenerator:
         return features
 
     def __call__(self, batch_size: int) -> TensorDict:
-        """
-        배치 크기만큼 데이터를 복제하여 TensorDict를 생성합니다.
-        """
         node_features = self._create_feature_tensor()
-
-        # 전역 제약조건을 프롬프트 피처로 변환
         constraints = self.config.constraints
         prompt_features = torch.tensor([
             constraints.get('ambient_temperature', 25.0),
             constraints.get('max_sleep_current', 0.0)
         ])
 
-        # batch 차원 추가
         node_features = node_features.unsqueeze(0).expand(batch_size, -1, -1)
         prompt_features = prompt_features.unsqueeze(0).expand(batch_size, -1)
 
+        # 💡 수정된 부분: static_info를 TensorDict에서 제거
         return TensorDict(
             {
                 "nodes": node_features,
                 "prompt_features": prompt_features,
-                # 정적 정보를 함께 제공하여 환경에서 사용
-                "static_info": {
-                    "node_names": self.config.node_names,
-                    "node_types": self.config.node_types,
-                    "num_loads": self.num_loads,
-                }
             },
             batch_size=[batch_size],
         )
