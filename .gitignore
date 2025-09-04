@@ -16,3 +16,6 @@ __pycache__/
 
 #cuda,pytouch 버전확인용
 pytouch_test.py
+
+#log.txt
+result/
