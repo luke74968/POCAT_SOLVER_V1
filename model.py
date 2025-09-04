@@ -5,25 +5,18 @@ import torch.nn.functional as F
 from typing import Tuple
 from tensordict import TensorDict
 
-# 직접 정의한 유틸리티와 정의 파일을 임포트
 from pocat_defs import FEATURE_DIM
 from pocat_utils import batchify
 from pocat_env import PocatEnv
 
-
-#################################################################
-# CaDA Core Components (재정의)
-#################################################################
-
+# ... (RMSNorm, Normalization, EncoderLayer 등 다른 클래스는 이전과 동일) ...
 class RMSNorm(nn.Module):
     def __init__(self, dim: int, eps: float = 1e-6):
         super().__init__()
         self.eps = eps
         self.weight = nn.Parameter(torch.ones(dim))
-
     def _norm(self, x):
         return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
-
     def forward(self, x):
         output = self._norm(x.float()).type_as(x)
         return output * self.weight
@@ -36,7 +29,6 @@ class Normalization(nn.Module):
         elif self.norm_type == 'rms': self.norm = RMSNorm(embedding_dim)
         elif self.norm_type == 'instance': self.norm = nn.InstanceNorm1d(embedding_dim, affine=True, track_running_stats=False)
         else: raise NotImplementedError
-
     def forward(self, x):
         if self.norm_type == 'instance': return self.norm(x.transpose(1, 2)).transpose(1, 2)
         else: return self.norm(x)
@@ -47,11 +39,8 @@ class ParallelGatedMLP(nn.Module):
         inner_size = int(2 * hidden_size * 4 / 3)
         multiple_of = 256
         inner_size = multiple_of * ((inner_size + multiple_of - 1) // multiple_of)
-        self.l1 = nn.Linear(hidden_size, inner_size, bias=False)
-        self.l2 = nn.Linear(hidden_size, inner_size, bias=False)
-        self.l3 = nn.Linear(inner_size, hidden_size, bias=False)
+        self.l1, self.l2, self.l3 = nn.Linear(hidden_size, inner_size, bias=False), nn.Linear(hidden_size, inner_size, bias=False), nn.Linear(inner_size, hidden_size, bias=False)
         self.act = F.silu
-
     def forward(self, z):
         z1, z2 = self.l1(z), self.l2(z)
         return self.l3(self.act(z1) * z2)
@@ -61,7 +50,6 @@ class FeedForward(nn.Module):
         super().__init__()
         self.W1 = nn.Linear(embedding_dim, ff_hidden_dim)
         self.W2 = nn.Linear(ff_hidden_dim, embedding_dim)
-
     def forward(self, input1):
         return self.W2(F.relu(self.W1(input1)))
 
@@ -72,11 +60,10 @@ def reshape_by_heads(qkv: torch.Tensor, head_num: int) -> torch.Tensor:
 
 def multi_head_attention(q, k, v, ninf_mask=None):
     batch_s, head_num, n, key_dim = q.shape
-    input_s = k.size(2)
     score = torch.matmul(q, k.transpose(2, 3))
     score_scaled = score / (key_dim ** 0.5)
     if ninf_mask is not None:
-        score_scaled = score_scaled + ninf_mask[:, None, :, :].expand(batch_s, head_num, n, input_s)
+        score_scaled = score_scaled + ninf_mask[:, None, :, :].expand(batch_s, head_num, n, k.size(2))
     weights = nn.Softmax(dim=3)(score_scaled)
     out = torch.matmul(weights, v)
     out_transposed = out.transpose(1, 2)
@@ -86,33 +73,22 @@ class EncoderLayer(nn.Module):
     def __init__(self, embedding_dim, head_num, qkv_dim, ffd='siglu', **model_params):
         super().__init__()
         self.embedding_dim, self.head_num, self.qkv_dim = embedding_dim, head_num, qkv_dim
-        self.Wq = nn.Linear(embedding_dim, head_num * qkv_dim, bias=False)
-        self.Wk = nn.Linear(embedding_dim, head_num * qkv_dim, bias=False)
-        self.Wv = nn.Linear(embedding_dim, head_num * qkv_dim, bias=False)
+        self.Wq, self.Wk, self.Wv = nn.Linear(embedding_dim, head_num * qkv_dim, bias=False), nn.Linear(embedding_dim, head_num * qkv_dim, bias=False), nn.Linear(embedding_dim, head_num * qkv_dim, bias=False)
         self.multi_head_combine = nn.Linear(head_num * qkv_dim, embedding_dim)
         self.normalization1 = Normalization(embedding_dim, **model_params)
         if ffd == 'siglu': self.feed_forward = ParallelGatedMLP(hidden_size=embedding_dim, **model_params)
         else: self.feed_forward = FeedForward(embedding_dim=embedding_dim, **model_params)
         self.normalization2 = Normalization(embedding_dim, **model_params)
-
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         q, k, v = reshape_by_heads(self.Wq(x), self.head_num), reshape_by_heads(self.Wk(x), self.head_num), reshape_by_heads(self.Wv(x), self.head_num)
         mha_out = self.multi_head_combine(multi_head_attention(q, k, v))
         h = self.normalization1(x + mha_out)
         return self.normalization2(h + self.feed_forward(h))
 
-#################################################################
-# POCAT Model Definition
-#################################################################
-
 class PocatPromptNet(nn.Module):
     def __init__(self, embedding_dim: int, prompt_feature_dim: int = 2, **kwargs):
         super().__init__()
-        self.model = nn.Sequential(
-            nn.Linear(prompt_feature_dim, embedding_dim // 2), nn.ReLU(),
-            nn.Linear(embedding_dim // 2, embedding_dim),
-        )
-
+        self.model = nn.Sequential(nn.Linear(prompt_feature_dim, embedding_dim // 2), nn.ReLU(), nn.Linear(embedding_dim // 2, embedding_dim))
     def forward(self, prompt_features: torch.Tensor) -> torch.Tensor:
         return self.model(prompt_features).unsqueeze(1)
 
@@ -120,14 +96,10 @@ class PocatEncoder(nn.Module):
     def __init__(self, embedding_dim: int, encoder_layer_num: int = 6, **kwargs):
         super().__init__()
         self.embedding_layer = nn.Linear(FEATURE_DIM, embedding_dim)
-        self.layers = nn.ModuleList(
-            [EncoderLayer(embedding_dim=embedding_dim, **kwargs) for _ in range(encoder_layer_num)]
-        )
-
+        self.layers = nn.ModuleList([EncoderLayer(embedding_dim=embedding_dim, **kwargs) for _ in range(encoder_layer_num)])
     def forward(self, node_features: torch.Tensor, prompt_embedding: torch.Tensor) -> torch.Tensor:
         x = self.embedding_layer(node_features) + prompt_embedding
-        for layer in self.layers:
-            x = layer(x)
+        for layer in self.layers: x = layer(x)
         return x
 
 class PocatDecoder(nn.Module):
@@ -144,7 +116,6 @@ class PocatDecoder(nn.Module):
         child_scores[~mask.any(dim=2)] = -1e9
         child_log_probs = F.log_softmax(child_scores, dim=-1)
         selected_child_idx = child_log_probs.argmax(dim=-1)
-
         child_emb = encoded_nodes[torch.arange(encoded_nodes.shape[0]), selected_child_idx]
         parent_q_in = torch.cat([context_embedding, child_emb], dim=1)
         parent_q = self.parent_wq(parent_q_in).unsqueeze(1)
@@ -153,7 +124,6 @@ class PocatDecoder(nn.Module):
         parent_scores[~mask[torch.arange(mask.shape[0]), selected_child_idx]] = -1e9
         parent_log_probs = F.log_softmax(parent_scores, dim=-1)
         selected_parent_idx = parent_log_probs.argmax(dim=-1)
-
         action = torch.stack([selected_child_idx, selected_parent_idx], dim=1)
         child_prob = child_log_probs.gather(1, selected_child_idx.unsqueeze(-1)).squeeze(-1)
         parent_prob = parent_log_probs.gather(1, selected_parent_idx.unsqueeze(-1)).squeeze(-1)
@@ -163,8 +133,7 @@ class PocatModel(nn.Module):
     def __init__(self, **model_params):
         super().__init__()
         embedding_dim = model_params['embedding_dim']
-        # 💡 수정된 부분: **model_params 제거
-        self.prompt_net = PocatPromptNet(embedding_dim=embedding_dim) 
+        self.prompt_net = PocatPromptNet(embedding_dim=embedding_dim)
         self.encoder = PocatEncoder(**model_params)
         self.decoder = PocatDecoder(**model_params)
         self.context_gru = nn.GRUCell(embedding_dim * 2, embedding_dim)
@@ -179,9 +148,8 @@ class PocatModel(nn.Module):
         
         batch_size = td.batch_size[0]
         context_embedding = encoded_nodes.mean(dim=1)
-        
         log_probs, actions = [], []
-
+        
         # POMO First Step
         start_child_emb = encoded_nodes[torch.arange(batch_size), start_nodes_idx]
         parent_q_in = torch.cat([context_embedding, start_child_emb], dim=1)
@@ -196,7 +164,10 @@ class PocatModel(nn.Module):
         
         action = torch.stack([start_nodes_idx, selected_parent_idx], dim=1)
         td.set("action", action)
-        td = env.step(td)
+        
+        # 💡 수정된 부분: step()의 전체 반환값을 받고, 'next' 키로 다음 상태를 업데이트
+        output_td = env.step(td)
+        td = output_td["next"]
         
         log_prob = parent_log_probs.gather(1, selected_parent_idx.unsqueeze(-1)).squeeze(-1)
         actions.append(action)
@@ -211,7 +182,8 @@ class PocatModel(nn.Module):
             if td["done"].all(): break
             log_prob, action = self.decoder(encoded_nodes, context_embedding, env.get_action_mask(td))
             td.set("action", action)
-            td = env.step(td)
+            output_td = env.step(td)
+            td = output_td["next"]
             actions.append(action)
             log_probs.append(log_prob)
             
@@ -219,8 +191,11 @@ class PocatModel(nn.Module):
             parent_emb = encoded_nodes[torch.arange(batch_size), action[:, 1]]
             context_embedding = self.context_gru(torch.cat([child_emb, parent_emb], dim=1), context_embedding)
 
+        # 💡 수정된 부분: 최종 상태의 보상이 아닌, 마지막 step에서 반환된 보상을 사용
+        final_reward = output_td["reward"]
+
         return {
-            "reward": td["reward"],
-            "log_likelihood": torch.stack(log_probs, 1).sum(1) if log_probs else torch.zeros(batch_size),
-            "actions": torch.stack(actions, 1) if actions else torch.empty(batch_size, 0, 2, dtype=torch.long)
+            "reward": final_reward,
+            "log_likelihood": torch.stack(log_probs, 1).sum(1) if log_probs else torch.zeros(batch_size, device=td.device),
+            "actions": torch.stack(actions, 1) if actions else torch.empty(batch_size, 0, 2, dtype=torch.long, device=td.device)
         }

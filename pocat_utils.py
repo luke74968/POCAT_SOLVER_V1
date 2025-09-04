@@ -72,51 +72,35 @@ class TimeEstimator:
 def _batchify_single(x: Union[Tensor, TensorDict], repeats: int) -> Union[Tensor, TensorDict]:
     """ 텐서 또는 TensorDict의 첫 번째 차원(배치)을 'repeats'만큼 복제합니다. """
     s = x.shape
-    # (batch, ...) -> (repeats, batch, ...) -> (repeats * batch, ...)
     return x.expand(repeats, *s).contiguous().view(s[0] * repeats, *s[1:])
 
 def batchify(x: Union[Tensor, TensorDict], repeats: int) -> Union[Tensor, TensorDict]:
-    """ 
-    POMO 스타일의 병렬 탐색을 위해 데이터를 확장하는 함수.
-    `einops.repeat(x, 'b ... -> (b r) ...', r=repeats)`와 동일하게 작동합니다.
-    """
+    """ POMO 스타일의 병렬 탐색을 위해 데이터를 확장하는 함수. """
     return _batchify_single(x, repeats) if repeats > 0 else x
 
 def _unbatchify_single(x: Union[Tensor, TensorDict], repeats: int) -> Union[Tensor, TensorDict]:
     """ batchify의 역연산. """
     s = x.shape
-    # (repeats * batch, ...) -> (repeats, batch, ...) -> (batch, repeats, ...)
-    # .permute(1, 0, ...)는 batch와 repeats 차원을 맞바꿉니다.
     return x.view(repeats, s[0] // repeats, *s[1:]).permute(1, 0, *range(2, len(s) + 1))
 
 def unbatchify(x: Union[Tensor, TensorDict], repeats: int) -> Union[Tensor, TensorDict]:
-    """
-    POMO 결과를 합치기 위해 확장된 데이터를 원래 형태로 되돌리는 함수.
-    `einops.rearrange(x, '(r b) ... -> b r ...', r=repeats)`와 동일하게 작동합니다.
-    """
+    """ POMO 결과를 합치기 위해 확장된 데이터를 원래 형태로 되돌리는 함수. """
     return _unbatchify_single(x, repeats) if repeats > 0 else x
-
 
 #################################################################
 # Training Utilities
 #################################################################
 
 def clip_grad_norms(param_groups, max_norm=math.inf):
-    """
-    PyTorch 옵티마이저의 파라미터 그룹에 대해 그래디언트 클리핑을 수행하고,
-    클리핑 전후의 그래디언트 norm을 반환합니다.
-    """
+    """ PyTorch 옵티마이저의 파라미터 그룹에 대해 그래디언트 클리핑을 수행합니다. """
     grad_norms = [
         torch.nn.utils.clip_grad_norm_(
             group['params'],
             max_norm if max_norm > 0 else math.inf,
             norm_type=2
         )
-        for group in param_groups if group['params'] # 파라미터가 있는 그룹만
+        for group in param_groups if group['params']
     ]
-    
-    # torch.Tensor를 float으로 변환
     grad_norms_cpu = [g.item() for g in grad_norms]
-
     grad_norms_clipped = [min(g_norm, max_norm) for g_norm in grad_norms_cpu] if max_norm > 0 else grad_norms_cpu
     return grad_norms_cpu, grad_norms_clipped
