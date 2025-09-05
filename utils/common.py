@@ -13,8 +13,8 @@ from tensordict import TensorDict
 class TimeEstimator:
     """ 훈련 시간 및 남은 시간을 예측하는 클래스 """
 
-    def __init__(self, logger=None):
-        self.logger = logger if logger else logging.getLogger('TimeEstimator')
+    def __init__(self, log_fn=None):
+        self.log = log_fn or logging.getLogger('TimeEstimator').info
         self.start_time = time.time()
         self.count_zero = 0
 
@@ -46,7 +46,7 @@ class TimeEstimator:
 
     def print_est_time(self, count, total):
         elapsed_str, remain_str = self.get_est_string(count, total)
-        self.logger.info(
+        self.log(
             f"Epoch {count:3d}/{total:3d}: Time Est.: Elapsed[{elapsed_str}], Remain[{remain_str}]"
         )
 
