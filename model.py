@@ -6,7 +6,7 @@ from typing import Tuple
 from tensordict import TensorDict
 
 from pocat_defs import FEATURE_DIM
-from pocat_utils import batchify
+from utils.common import batchify
 from pocat_env import PocatEnv
 
 # ... (RMSNorm, Normalization, EncoderLayer 등 다른 클래스는 이전과 동일) ...

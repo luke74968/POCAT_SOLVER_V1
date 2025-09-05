@@ -2,7 +2,7 @@
 import torch
 from tqdm import tqdm
 
-from pocat_utils import TimeEstimator, clip_grad_norms, unbatchify
+from utils.common import TimeEstimator, clip_grad_norms, unbatchify
 from model import PocatModel
 from pocat_env import PocatEnv
 
