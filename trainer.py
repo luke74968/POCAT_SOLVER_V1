@@ -43,7 +43,7 @@ class PocatTrainer:
             raise NotImplementedError
             
         self.start_epoch = 1
-        self.time_estimator = TimeEstimator(logger=args.log)
+        self.time_estimator = TimeEstimator(log_fn=args.log)
 
     def run(self):
         args = self.args
