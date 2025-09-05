@@ -32,14 +32,14 @@ class PocatEnv(EnvBase):
 
         num_nodes = td["nodes"].shape[1]
         
-        reset_td = Composite({
+        reset_td = TensorDict({
             "nodes": td["nodes"],
             "prompt_features": td["prompt_features"],
             "connections": torch.zeros(td.batch_size[0], num_nodes - 1, 2, dtype=torch.long, device=self.device),
             "connected_nodes_mask": torch.zeros(td.batch_size[0], num_nodes, dtype=torch.bool, device=self.device),
             "ic_current_draw": torch.zeros(td.batch_size[0], num_nodes, device=self.device),
             "step_count": torch.zeros(td.batch_size[0], 1, dtype=torch.long, device=self.device),
-        })
+        }, batch_size=[td.batch_size[0]], device=self.device)
         reset_td.set("done", torch.zeros(td.batch_size[0], 1, dtype=torch.bool, device=self.device))
         return reset_td
 
