@@ -27,8 +27,12 @@ def main(args):
     
     env = PocatEnv(generator_params={'config_file_path': args.config_file}, device=device)
     trainer = PocatTrainer(args, env, device)
-    # 훈련 시작
-    trainer.run()
+
+    # 💡 --test_only 플래그가 있으면 훈련 대신 test() 함수를 실행
+    if args.test_only:
+        trainer.test()
+    else:
+        trainer.run()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -37,8 +41,11 @@ if __name__ == "__main__":
     parser.add_argument("--config_file", type=str, default="config.json", help="Path to POCAT config file")
     parser.add_argument("--config_yaml", type=str, default="config.yaml", help="Path to model/training config YAML")
     parser.add_argument("--seed", type=int, default=1234, help="Random seed")
-    parser.add_argument('--test_only', action='store_true', help="Only run test")
     
+    # 💡 추론을 위한 인자 추가
+    parser.add_argument('--test_only', action='store_true', help="Only run test/inference")
+    parser.add_argument('--load_path', type=str, default=None, help="Path to a saved model checkpoint (.pth)")
+
     args = parser.parse_args()
     
     args.start_time = time.strftime("%Y-%m%d-%H%M%S", time.localtime())
