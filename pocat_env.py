@@ -58,7 +58,7 @@ class PocatEnv(EnvBase):
 
         td["connected_nodes_mask"][b_idx, child_idx] = True
         parent_is_not_battery = td["nodes"][b_idx, parent_idx, FEATURE_INDEX["node_type"][0] + NODE_TYPE_BATTERY] != 1
-        td["connected_nodes_mask"][b_idx, parent_idx[parent_is_not_battery]] = True
+        td["connected_nodes_mask"][b_idx[parent_is_not_battery], parent_idx[parent_is_not_battery]] = True
 
         load_indices = torch.where(td["nodes"][0, :, FEATURE_INDEX["node_type"][0] + NODE_TYPE_LOAD] == 1)[0]
         all_loads_connected = td["connected_nodes_mask"][:, load_indices].all(dim=1)
